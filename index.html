@@ -88,6 +88,7 @@ button.danger{background:#dc2626}
 
 <script>
 const STORAGE_KEY = "iekei_csv_tolerant_v1";
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ99X3PZgshX8UHUQ0QbcOhDCXsvawQ9LtaI9_StRyMI8_kpUDWLzXldEef668bTquw9Kh5AQD7_Ssh/pub?output=csv";
 const DEFAULT_STORES = [
   {
     "id": "sample_shibuya_001",
@@ -112,8 +113,8 @@ let filteredStores = [];
 let map;
 let markers = [];
 
-function init(){
-  stores = loadStores();
+async function init(){
+  stores = await loadStoresFromCsvUrl();
   map = L.map("map").setView([35.681236,139.767125], 11);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom:19,
@@ -134,7 +135,56 @@ function loadStores(){
   } catch(e) {}
   return DEFAULT_STORES;
 }
+async function loadStoresFromCsvUrl(){
+  try {
+    const res = await fetch(CSV_URL);
+    const text = await res.text();
 
+    const lines = cleanText(text)
+      .split(/\r?\n/)
+      .map(x => cleanText(x))
+      .filter(Boolean);
+
+    const header = parseCsvLine(lines.shift()).map(h => cleanText(h).toLowerCase());
+
+    const data = [];
+
+    lines.forEach((line) => {
+      const vals = parseCsvLine(line);
+      const row = {};
+      header.forEach((h,i) => row[h] = vals[i] ?? "");
+
+      const obj = {
+        id: row.id,
+        name: row.name,
+        type: row.type || "その他",
+        area: "tokyo",
+        cityArea: row.cityarea || row.area || "",
+        address: row.address,
+        lat: Number(row.lat),
+        lng: Number(row.lng),
+        rating: Number(row.rating || 4),
+        tags: String(row.tags || "").split("|").map(cleanText).filter(Boolean),
+        memo: row.memo || "スプレッドシート読込"
+      };
+
+      if(!obj.cityArea || obj.cityArea === "tokyo"){
+        obj.cityArea = inferArea([obj.name,obj.address,obj.tags.join("|")].join(" "));
+      }
+
+      if(!obj.tags.includes(obj.cityArea)) obj.tags.unshift(obj.cityArea);
+
+      if(validStore(obj)) data.push(obj);
+    });
+
+    if(data.length) return data;
+
+  } catch(e) {
+    console.error("CSV読み込み失敗", e);
+  }
+
+  return loadStores();
+}
 function saveStores(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stores));
 }
